@@ -69,6 +69,26 @@ static class T
         tl.Log(0, "a"); tl.Log(5, "b"); tl.Log(11, "c");
         Check(logged == 2, "throttle drops inside window");
 
+        // PacketBus: typed dispatch, removal, reentrancy-safe snapshot
+        var bus = new PacketBus();
+        int got = 0;
+        Action<string> h = _ => got++;
+        bus.AddHandler(h);
+        bus.AddHandler<int>(_ => got += 10);
+        Check(bus.Dispatch("hi") == 1 && got == 1, "bus dispatches by type");
+        Check(bus.Dispatch(5) == 1 && got == 11, "bus separates types");
+        bus.RemoveHandler(h);
+        Check(bus.Dispatch("hi") == 0, "bus removes handlers");
+        Check(bus.Dispatch(null) == 0, "bus ignores null");
+
+        // DeadReckoning: extrapolation + staleness fade + glide stop
+        var dr = DeadReckoning.At(0, 0, now: 100, fadeSeconds: 2);
+        dr.Update(10, 5, 2, 0, now: 100);
+        var s1 = dr.Sample(100.5);
+        Check(Math.Abs(s1.x - 11) < 1e-4 && Math.Abs(s1.alpha - 0.75f) < 1e-4, "reckons and fades");
+        var s2 = dr.Sample(200);
+        Check(s2.alpha == 0 && Math.Abs(s2.x - 14) < 1e-4, "fade hits zero, glide stops at fade horizon");
+
         Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILURES");
         return fails;
     }
