@@ -1,0 +1,16 @@
+# Build and test CoopKit without a host .NET SDK:
+#   docker compose run --rm test     # run the kit's semantics tests
+#   docker compose run --rm build    # build CoopKit.dll into dist/
+services:
+  build:
+    image: mcr.microsoft.com/dotnet/sdk:9.0
+    working_dir: /kit
+    volumes: [ ".:/kit:z" ]
+    environment: [ DOTNET_CLI_TELEMETRY_OPTOUT=1, DOTNET_NOLOGO=1 ]
+    command: dotnet build src/CoopKit/CoopKit.csproj -c Release -o dist
+  test:
+    image: mcr.microsoft.com/dotnet/sdk:9.0
+    working_dir: /kit/tests/KitTests
+    volumes: [ ".:/kit:z" ]
+    environment: [ DOTNET_CLI_TELEMETRY_OPTOUT=1, DOTNET_NOLOGO=1 ]
+    command: dotnet run

@@ -24,6 +24,14 @@ namespace CoopKit
 
         private readonly List<Field> _fields = new List<Field>();
 
+        // Reentrancy: a wrapped method calling another wrapped method on the
+        // SAME player must not re-snapshot — the shared fields already hold
+        // that player's pool, so an inner swap would capture a stale snapshot
+        // and its End would clobber the inner computation. Only the outermost
+        // scope per player does the work; inner scopes pass through.
+        // (Single-threaded by contract: game main thread.)
+        private readonly Dictionary<TPlayer, int> _depth = new Dictionary<TPlayer, int>();
+
         public PoolSwap<TPlayer> Add(
             Func<int> getShared, Action<int> setShared,
             Func<TPlayer, int> getPool, Action<TPlayer, int> setPool)
@@ -40,6 +48,10 @@ namespace CoopKit
         public Scope Begin(TPlayer player)
         {
             if (player == null) return null;
+
+            _depth.TryGetValue(player, out var depth);
+            _depth[player] = depth + 1;
+            if (depth > 0) return new Scope(this, player, null);   // passthrough
 
             var saved = new int[_fields.Count];
             for (var i = 0; i < _fields.Count; i++)
@@ -70,6 +82,15 @@ namespace CoopKit
             {
                 if (_ended) return;
                 _ended = true;
+
+                if (_owner._depth.TryGetValue(_player, out var depth))
+                {
+                    if (depth <= 1) _owner._depth.Remove(_player);
+                    else _owner._depth[_player] = depth - 1;
+                }
+
+                if (_saved == null) return;   // passthrough scope
+
                 for (var i = 0; i < _owner._fields.Count; i++)
                 {
                     var f = _owner._fields[i];
