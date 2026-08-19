@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>CoopKit</AssemblyName>
+    <RootNamespace>CoopKit</RootNamespace>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <!-- Engine- and game-agnostic on purpose: the only dependency is Harmony,
+         because patch isolation is part of the kit. Anything that would need
+         UnityEngine or a game assembly belongs in the consuming mod. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="HarmonyX" Version="2.10.1" />
+  </ItemGroup>
+</Project>
