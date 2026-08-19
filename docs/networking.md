@@ -21,6 +21,33 @@ multiplayer on any Unity game." Decomposition into the five real problems:
    the physics layer across CPUs; retrofitting determinism is harder than
    hand-syncing.
 
+## The thin-client refinement (changes the verdict)
+
+Host simulates EVERYTHING; clients forward input events and render a mirrored
+scene from replicated *visible* state (transforms, animator states,
+spawn/despawn, VFX/audio events — delta-encoded). This kills problems 3 and 5
+(one simulation, no determinism needed) and reduces 2 to the snapshottable
+subset. Latency = input RTT: negligible on LAN, cloud-gaming-feel over WAN.
+
+Key asset: **the host side already exists — it is the couch mod.** Remote
+players are clone-players driven by a virtual input device fed from the
+network; the input layer does not care where button states come from.
+
+Remaining hard parts, in order:
+1. Puppet-izing the client world: run the game for assets/rendering, suppress
+   all simulation (gameplay scripts, physics, FSMs) while keeping renderers,
+   particles, audio, and the client's OWN live camera. HKMP's render-shell
+   trick generalized from remote players to the whole scene. This is the
+   project.
+2. Event taps for one-shot VFX/audio (spawn hooks catch most).
+3. Still single-scene: clients get independent cameras/screens (which Remote
+   Play Together cannot do), but everyone inhabits the host's one loaded
+   scene. Different map areas simultaneously stays blocked.
+
+Versus Remote Play Together: wins are per-client cameras, bandwidth, render
+quality; cost is months. Pipeline: couch mod → RPT for online → thin-client
+GhostSync when per-client cameras justify it.
+
 ## What is real
 
 - **GhostSync tier (future kit module):** HKMP-shaped model — each client owns
