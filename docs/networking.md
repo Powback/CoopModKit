@@ -3,7 +3,13 @@
 Recurring idea: "serialize the whole scene, delta-sync it, get native
 multiplayer on any Unity game." Decomposition into the five real problems:
 
-1. **Bandwidth** — solved (delta encoding, e.g. UFOSimEngine's). The easy 10%.
+1. **Bandwidth** — solved. UFOSimEngine's actual mechanism (read, not assumed:
+   crates/net/delta.rs): causal delta batches — per-tick serialization of
+   changed Causal components only, `(PersistentId u128, ComponentId,
+   varint-len, bytes)`, with ReplicationClass labels deciding what replicates,
+   identity.rs (persistent IDs), interest.rs (scoping), hash.rs (per-tick
+   desync tripwire). The easy 10% — but see the note at the bottom: those
+   crates are liftable as the GhostSync transport layer.
 2. **What is the state?** Visible state (transforms/animators) snapshots fine.
    Behavioral state does not: private fields, mid-yield coroutines (compiler
    state machines w/ locals+closures), FSM internals, statics, RNG streams.
@@ -59,3 +65,20 @@ GhostSync when per-client cameras justify it.
 - **Available today at zero cost:** couch mods + Steam Remote Play Together =
   online multiplayer with no networking code. Ship couch first; RPT is the
   online story until GhostSync earns its existence.
+
+## UFOSimEngine, read properly
+
+It achieves "sync anything seamlessly" because five properties are designed
+in — replication classes on every component, persistent identity, bit-
+deterministic sim with seeded RNG + state-hash verification, implicit-until-
+observed state (most of the world has nothing to sync), interest management.
+Those are the five problems above, solved at design time. It is the existence
+proof that the dream works when you own the engine — and of why it cannot be
+retrofitted onto a shipped Unity game (unlabeled components, unstable IDs,
+nondeterministic sim, all state explicit).
+
+Concrete reuse for thin-client GhostSync: lift the net crates as the
+transport/wire substrate (delta-batch format, identity map, interest, hash
+tripwire, WS/TCP/STDB transports) — a Rust relay speaking that format, the
+Unity mod acting as emitter/applier of its curated visible-state set. The
+per-game semantic layer stays hand-built.
