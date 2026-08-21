@@ -89,6 +89,83 @@ static class T
         var s2 = dr.Sample(200);
         Check(s2.alpha == 0 && Math.Abs(s2.x - 14) < 1e-4, "fade hits zero, glide stops at fade horizon");
 
+
+        // ── Json: the snapshot writer ─────────────────────────────────────
+        Check(Json.Object().Add("a", 1).Add("b", true).Close() == "{\"a\":1,\"b\":true}",
+            "json object");
+        Check(Json.Object().Add("s", "he\"llo\n").Close() == "{\"s\":\"he\\\"llo\\n\"}",
+            "json escapes quotes and control chars");
+        Check(Json.Object().Add("f", 1.5f).Close() == "{\"f\":1.5}", "json float invariant");
+        // A dead transform yields NaN; emitting it raw would produce a document
+        // no parser accepts, silently breaking every later assertion.
+        Check(Json.Object().Add("f", float.NaN).Close() == "{\"f\":null}", "json NaN -> null");
+        Check(Json.Object().Add("s", (string)null).Close() == "{\"s\":null}", "json null string");
+        Check(Json.Array(new[]{"1","2"}) == "[1,2]", "json array");
+
+        // ── DebugServer: the state channel ────────────────────────────────
+        var srv = new DebugServer(_ => { });
+        var pumped = 0;
+        srv.Route("/state", q => { pumped++;
+                     return Json.Object().Add("ok", true)
+                        .Add("echo", q.ContainsKey("n") ? q["n"] : "").Close(); })
+           .Route("/boom", q => throw new Exception("handler blew up"));
+        var snapFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "coopkit-snap-" + Guid.NewGuid().ToString("N") + ".json");
+        srv.Snapshot(snapFile, "/state", 0.0);
+        Check(srv.Start(0), "server binds an ephemeral port");
+
+        // Handlers only run when the game thread pumps — that is the whole
+        // point of the design, so prove requests really do wait for it.
+        var stop = false;
+        var pump = new System.Threading.Thread(() => {
+            var t = 0.0;
+            while (!stop) { srv.Pump(t); t += 1.0; System.Threading.Thread.Sleep(5); }
+        }) { IsBackground = true };
+        pump.Start();
+
+        Func<string, (int, string)> get = path => {
+            using (var c = new System.Net.Sockets.TcpClient("127.0.0.1", srv.Port)) {
+                var st = c.GetStream();
+                var req = System.Text.Encoding.ASCII.GetBytes(
+                    "GET " + path + " HTTP/1.1\r\nHost: localhost\r\n\r\n");
+                st.Write(req, 0, req.Length);
+                using (var rd = new System.IO.StreamReader(st)) {
+                    var all = rd.ReadToEnd();
+                    var split = all.IndexOf("\r\n\r\n");
+                    var head = split < 0 ? all : all.Substring(0, split);
+                    var body = split < 0 ? "" : all.Substring(split + 4);
+                    var code = int.Parse(head.Split(' ')[1]);
+                    return (code, body);
+                }
+            }
+        };
+
+        var (code1, body1) = get("/state?n=hi");
+        Check(code1 == 200 && body1 == "{\"ok\":true,\"echo\":\"hi\"}",
+            "GET /state answers on the game thread with parsed query");
+        Check(pumped > 0, "handler ran on the pump, not the socket thread");
+
+        // Negative paths: a channel that answers 200 to everything is a channel
+        // that cannot tell you anything went wrong.
+        var (code2, body2) = get("/nope");
+        Check(code2 == 404 && body2.Contains("/state"),
+            "unknown route 404s and lists what exists");
+        var (code3, body3) = get("/boom");
+        Check(code3 == 500 && body3.Contains("handler blew up"),
+            "a throwing handler 500s with its message, not a hang");
+
+        srv.Pump(999.0);   // snapshot interval elapsed
+        Check(System.IO.File.Exists(snapFile)
+              && System.IO.File.ReadAllText(snapFile).Contains("\"ok\":true"),
+            "snapshot file written for the socket-less fallback");
+
+        stop = true;
+        srv.Stop();
+        var refused = false;
+        try { get("/state"); } catch { refused = true; }
+        Check(refused, "Stop() closes the listener");
+        try { System.IO.File.Delete(snapFile); } catch { }
+
         Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILURES");
         return fails;
     }
